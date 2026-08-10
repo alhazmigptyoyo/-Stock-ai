@@ -1,0 +1,6 @@
+{
+  "name": "فرص تداول | منصة التحليل المالي وتوصيات الأسهم العالمية والسعودية",
+  "description": "منصة تحليل الأسهم وتوليد التوصيات اليومية برؤية ومحاكاة أكبر 10 مؤسسات مالية عالمية للأسواق السعودية والأمريكية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

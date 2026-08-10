@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>المؤسسات المالية والأسواق المالية</title>
+    <script>
+      (function() {
+        function isScriptError(msg) {
+          if (!msg) return true;
+          var str = typeof msg === 'string' ? msg : (msg.message || '');
+          return str === 'Script error.' || str.indexOf('Script error') !== -1 || str.indexOf('TradingView') !== -1 || str.indexOf('tradingview') !== -1;
+        }
+
+        window.addEventListener('error', function(e) {
+          if (isScriptError(e.message || e.error)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (isScriptError(message)) {
+            return true;
+          }
+          return false;
+        };
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = (e.reason && e.reason.message) || String(e.reason || '');
+          if (isScriptError(reason)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+
