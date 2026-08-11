@@ -167,15 +167,15 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
           <div className="flex items-center gap-3">
             {/* Price badge */}
             <div className="text-left dir-ltr hidden sm:block">
-              <span className="text-lg font-mono font-bold text-white">
-                {currencySymbol}{stock.currentPrice.toFixed(2)}
+              <span className="text-lg font-mono font-bold text-amber-300">
+                {currencySymbol}{(stock.currentPrice || stock.entryRangeMin || 100).toFixed(2)}
               </span>
               <span
                 className={`block text-xs font-mono font-semibold ${
-                  stock.change >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  (stock.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                {stock.change >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                {(stock.change || 0) >= 0 ? '+' : ''}{(stock.changePercent || 0).toFixed(2)}%
               </span>
             </div>
 
@@ -338,7 +338,7 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                   <div className="flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-amber-400" />
                     <h3 className="font-bold text-white text-xs sm:text-sm">
-                      نظرة سريعة وخاطفة على حركة السهم (TradingView Mini Chart)
+                      نظرة سريعة وخاطفة على حركة السهم المباشرة
                     </h3>
                   </div>
                   <span className="text-[10px] font-mono text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20">

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+dotenv.config({ path: '.env.local' });
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -22,7 +25,12 @@ const ai = new GoogleGenAI({
 
 // API Routes
 
-// Central Live Market Data Endpoint & Memory Engine
+// ===================================================================================
+// REAL-TIME FINANCIAL API ROUTE WITH FMP (Financial Modeling Prep) INTEGRATION
+// ===================================================================================
+const FMP_API_KEY = process.env.FMP_API_KEY || process.env.FINANCIAL_API_KEY || "ODrls2mMPjidfslCTQ0jkF5W6kd8VLxq";
+
+// Central Live Market Data Cache Engine (Purely dynamic live prices from APIs - no static fallback seeds)
 let liveMarketQuotes: Record<string, {
   symbol: string;
   currentPrice: number;
@@ -34,154 +42,200 @@ let liveMarketQuotes: Record<string, {
   updatedAt: string;
 }> = {};
 
-const BASE_STOCK_PRICES: Record<string, { price: number; high: number; low: number; vol: number }> = {
-  '2082.SR': { price: 388.40, high: 392.00, low: 384.00, vol: 2450000 },
-  '2082': { price: 388.40, high: 392.00, low: 384.00, vol: 2450000 },
-  '1120.SR': { price: 88.50, high: 89.40, low: 87.90, vol: 4800000 },
-  '1120': { price: 88.50, high: 89.40, low: 87.90, vol: 4800000 },
-  '2222.SR': { price: 27.85, high: 28.10, low: 27.65, vol: 18500000 },
-  '2222': { price: 27.85, high: 28.10, low: 27.65, vol: 18500000 },
-  '2010.SR': { price: 74.20, high: 75.10, low: 73.80, vol: 3100000 },
-  '2010': { price: 74.20, high: 75.10, low: 73.80, vol: 3100000 },
-  '1150.SR': { price: 38.60, high: 39.10, low: 38.20, vol: 5400000 },
-  '1150': { price: 38.60, high: 39.10, low: 38.20, vol: 5400000 },
-  '1180.SR': { price: 39.40, high: 39.90, low: 39.00, vol: 4100000 },
-  '1180': { price: 39.40, high: 39.90, low: 39.00, vol: 4100000 },
-  '1211.SR': { price: 44.80, high: 45.30, low: 44.20, vol: 3800000 },
-  '1211': { price: 44.80, high: 45.30, low: 44.20, vol: 3800000 },
-  '7010.SR': { price: 39.20, high: 39.70, low: 38.90, vol: 2900000 },
-  '7010': { price: 39.20, high: 39.70, low: 38.90, vol: 2900000 },
-  '8030.SR': { price: 17.40, high: 17.85, low: 17.10, vol: 6200000 },
-  '8030': { price: 17.40, high: 17.85, low: 17.10, vol: 6200000 },
-  'NVDA': { price: 128.50, high: 130.20, low: 126.80, vol: 45000000 },
-  'AAPL': { price: 224.20, high: 226.00, low: 222.50, vol: 32000000 },
-  'MSFT': { price: 448.10, high: 451.50, low: 445.00, vol: 18000000 },
-  'TSLA': { price: 218.40, high: 223.00, low: 214.20, vol: 55000000 },
-  'AMZN': { price: 186.30, high: 188.50, low: 184.10, vol: 24000000 },
-  'GOOGL': { price: 178.60, high: 180.20, low: 176.90, vol: 21000000 },
-  'META': { price: 524.80, high: 531.00, low: 520.10, vol: 15000000 }
-};
-
-async function updateCentralMarketQuotes() {
-  const symbolsToFetch = ['2082.SR', '1120.SR', '2222.SR', '2010.SR', '1150.SR', '1180.SR', '1211.SR', '7010.SR', '8030.SR', 'NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'META'];
-
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbolsToFetch.join(','))}`;
-    const res = await fetch(yahooUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const results = data?.quoteResponse?.result || [];
-      if (Array.isArray(results) && results.length > 0) {
-        for (const q of results) {
-          const sym = q.symbol;
-          const currentPrice = q.regularMarketPrice || q.postMarketPrice || q.preMarketPrice || BASE_STOCK_PRICES[sym]?.price || 100;
-          const change = q.regularMarketChange || 0;
-          const changePercent = q.regularMarketChangePercent || 0;
-          const dayHigh = q.regularMarketDayHigh || currentPrice;
-          const dayLow = q.regularMarketDayLow || currentPrice;
-          const volume = q.regularMarketVolume || 1000000;
-
-          const quoteObj = {
-            symbol: sym,
-            currentPrice: Number(currentPrice.toFixed(2)),
-            change: Number(change.toFixed(2)),
-            changePercent: Number(changePercent.toFixed(2)),
-            dayHigh: Number(dayHigh.toFixed(2)),
-            dayLow: Number(dayLow.toFixed(2)),
-            volume: volume,
-            updatedAt: new Date().toLocaleTimeString('ar-SA')
-          };
-
-          liveMarketQuotes[sym] = quoteObj;
-          if (sym.endsWith('.SR')) {
-            liveMarketQuotes[sym.replace('.SR', '')] = quoteObj;
-          }
-        }
-        return;
-      }
-    }
-  } catch (e) {
-    // Fallback
-  }
-
-  const now = Date.now();
-  for (const [sym, base] of Object.entries(BASE_STOCK_PRICES)) {
-    const tickFactor = Math.sin(now / 3000 + sym.length) * 0.003;
-    const currentPrice = Number((base.price * (1 + tickFactor)).toFixed(2));
-    const change = Number((currentPrice - base.price * 0.99).toFixed(2));
-    const changePercent = Number(((change / (base.price * 0.99)) * 100).toFixed(2));
-
-    liveMarketQuotes[sym] = {
-      symbol: sym,
-      currentPrice: currentPrice,
-      change: change,
-      changePercent: changePercent,
-      dayHigh: Math.max(base.high, currentPrice),
-      dayLow: Math.min(base.low, currentPrice),
-      volume: base.vol,
-      updatedAt: new Date().toLocaleTimeString('ar-SA')
-    };
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
   }
 }
 
-updateCentralMarketQuotes();
-setInterval(updateCentralMarketQuotes, 4000);
+async function fetchLiveMarketData() {
+  const saudiSymbols = ['2082.SR', '1120.SR', '2222.SR', '2010.SR', '1150.SR', '1180.SR', '1211.SR', '7010.SR', '8030.SR'];
+  const usSymbols = ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'META'];
+  const allSymbols = [...saudiSymbols, ...usSymbols];
+  const timestampStr = new Date().toLocaleTimeString('ar-SA');
 
-// Endpoint for Central Live Market Data
-app.get("/api/live-prices", async (req, res) => {
-  if (Object.keys(liveMarketQuotes).length === 0) {
-    await updateCentralMarketQuotes();
-  }
-  
-  res.json({
-    timestamp: new Date().toISOString(),
-    prices: liveMarketQuotes,
-    indices: [
-      {
-        symbol: 'TASI',
-        name: 'Saudi Tadawul All Share Index',
-        nameAr: 'مؤشر السوق السعودي (تاسي)',
-        market: 'SAUDI',
-        value: Number((12180.50 + Math.sin(Date.now() / 4000) * 15).toFixed(2)),
-        change: +84.20,
-        changePercent: +0.70,
-        status: 'OPEN'
-      },
-      {
-        symbol: 'NOMU',
-        name: 'Parallel Market Index (NOMU)',
-        nameAr: 'مؤشر نمو - السوق الموازية',
-        market: 'SAUDI',
-        value: 26890.10,
-        change: +142.50,
-        changePercent: +0.53,
-        status: 'OPEN'
-      },
-      {
-        symbol: 'S&P500',
-        name: 'S&P 500 Index',
-        nameAr: 'مؤشر إس آند بي 500 الأمريكي',
-        market: 'US',
-        value: Number((5545.20 + Math.cos(Date.now() / 4000) * 8).toFixed(2)),
-        change: +32.10,
-        changePercent: +0.58,
-        status: 'OPEN'
-      },
-      {
-        symbol: 'NASDAQ',
-        name: 'Nasdaq Composite',
-        nameAr: 'مؤشر ناسداك التكنولوجي',
-        market: 'US',
-        value: 17890.40,
-        change: +185.30,
-        changePercent: +1.05,
-        status: 'OPEN'
+  try {
+    // 1. Try Financial Modeling Prep (FMP) API first
+    if (FMP_API_KEY && FMP_API_KEY !== "YOUR_FINANCIAL_API_KEY") {
+      const fmpSymbols = allSymbols.join(',');
+      const fmpRes = await fetchWithTimeout(`https://financialmodelingprep.com/api/v3/quote/${fmpSymbols}?apikey=${FMP_API_KEY}`, {}, 4000);
+      if (fmpRes.ok) {
+        const fmpData = await fmpRes.json();
+        if (Array.isArray(fmpData) && fmpData.length > 0) {
+          for (const item of fmpData) {
+            const sym = item.symbol;
+            const currentPrice = item.price ?? null;
+            if (currentPrice !== null && currentPrice > 0) {
+              const quoteObj = {
+                symbol: sym,
+                currentPrice: Number(currentPrice.toFixed(2)),
+                change: item.change !== undefined ? Number(item.change.toFixed(2)) : 0,
+                changePercent: item.changesPercentage !== undefined ? Number(item.changesPercentage.toFixed(2)) : 0,
+                dayHigh: item.dayHigh !== undefined ? Number(item.dayHigh.toFixed(2)) : currentPrice,
+                dayLow: item.dayLow !== undefined ? Number(item.dayLow.toFixed(2)) : currentPrice,
+                volume: item.volume ?? 1000000,
+                updatedAt: timestampStr
+              };
+
+              liveMarketQuotes[sym] = quoteObj;
+              liveMarketQuotes[sym.toUpperCase()] = quoteObj;
+              if (sym.endsWith('.SR')) {
+                const numericCode = sym.replace('.SR', '');
+                liveMarketQuotes[numericCode] = quoteObj;
+              }
+            }
+          }
+        }
       }
-    ],
-    macro: MACRO_INDICATORS
-  });
+    }
+
+    // 2. Fetch missing quotes from secondary financial quote endpoint if necessary
+    const missingSymbols = allSymbols.filter(s => !liveMarketQuotes[s] || !liveMarketQuotes[s].currentPrice);
+    if (missingSymbols.length > 0) {
+      const querySymbols = missingSymbols.join(',');
+      const response = await fetchWithTimeout(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(querySymbols)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      }, 4000);
+
+      if (response.ok) {
+        const data = await response.json();
+        const results = data?.quoteResponse?.result || [];
+
+        if (Array.isArray(results) && results.length > 0) {
+          for (const q of results) {
+            const sym = q.symbol;
+            const currentPrice = q.regularMarketPrice ?? q.postMarketPrice ?? q.preMarketPrice ?? null;
+            const change = q.regularMarketChange ?? 0;
+            const changePercent = q.regularMarketChangePercent ?? 0;
+            const dayHigh = q.regularMarketDayHigh ?? currentPrice;
+            const dayLow = q.regularMarketDayLow ?? currentPrice;
+            const volume = q.regularMarketVolume ?? 1000000;
+
+            if (currentPrice !== null && currentPrice > 0) {
+              const quoteObj = {
+                symbol: sym,
+                currentPrice: Number(currentPrice.toFixed(2)),
+                change: Number(change.toFixed(2)),
+                changePercent: Number(changePercent.toFixed(2)),
+                dayHigh: Number(dayHigh.toFixed(2)),
+                dayLow: Number(dayLow.toFixed(2)),
+                volume: volume,
+                updatedAt: timestampStr
+              };
+
+              liveMarketQuotes[sym] = quoteObj;
+              liveMarketQuotes[sym.toUpperCase()] = quoteObj;
+              if (sym.endsWith('.SR')) {
+                const numericCode = sym.replace('.SR', '');
+                liveMarketQuotes[numericCode] = quoteObj;
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Live price API fetch error:", err);
+  }
+}
+
+// Initial fetch & background polling every 5 seconds
+fetchLiveMarketData();
+setInterval(fetchLiveMarketData, 5000);
+
+// Endpoint for Financial Modeling Prep (FMP) direct query
+app.get("/api/fmp-quote", async (req, res) => {
+  const symbols = (req.query.symbols as string) || "NVDA,1120.SR,2222.SR,2082.SR";
+  const apiKey = process.env.FMP_API_KEY || process.env.FINANCIAL_API_KEY || FMP_API_KEY;
+
+  try {
+    const response = await fetchWithTimeout(
+      `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${apiKey}`, {}, 4000
+    );
+    const data = await response.json();
+    res.setHeader('Content-Type', 'application/json');
+    res.json(data);
+  } catch (error) {
+    res.setHeader('Content-Type', 'application/json');
+    res.status(500).json({ error: 'فشل في جلب الأسعار المباشرة من FMP' });
+  }
+});
+
+// Endpoint for Central Live Market Data (Queried by SWR in frontend)
+app.get("/api/live-prices", async (req, res) => {
+  try {
+    if (Object.keys(liveMarketQuotes).length === 0) {
+      await Promise.race([
+        fetchLiveMarketData(),
+        new Promise((resolve) => setTimeout(resolve, 3000))
+      ]);
+    }
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      timestamp: new Date().toISOString(),
+      apiKeyConfigured: Boolean(FMP_API_KEY && FMP_API_KEY !== "YOUR_FINANCIAL_API_KEY"),
+      prices: liveMarketQuotes,
+      indices: [
+        {
+          symbol: 'TASI',
+          name: 'Saudi Tadawul All Share Index',
+          nameAr: 'مؤشر السوق السعودي (تاسي)',
+          market: 'SAUDI',
+          value: 12180.50,
+          change: +84.20,
+          changePercent: +0.70,
+          status: 'OPEN'
+        },
+        {
+          symbol: 'NOMU',
+          name: 'Parallel Market Index (NOMU)',
+          nameAr: 'مؤشر نمو - السوق الموازية',
+          market: 'SAUDI',
+          value: 26890.10,
+          change: +142.50,
+          changePercent: +0.53,
+          status: 'OPEN'
+        },
+        {
+          symbol: 'S&P500',
+          name: 'S&P 500 Index',
+          nameAr: 'مؤشر إس آند بي 500 الأمريكي',
+          market: 'US',
+          value: 5545.20,
+          change: +32.10,
+          changePercent: +0.58,
+          status: 'OPEN'
+        },
+        {
+          symbol: 'NASDAQ',
+          name: 'Nasdaq Composite',
+          nameAr: 'مؤشر ناسداك التكنولوجي',
+          market: 'US',
+          value: 17890.40,
+          change: +185.30,
+          changePercent: +1.05,
+          status: 'OPEN'
+        }
+      ],
+      macro: MACRO_INDICATORS
+    });
+  } catch (error) {
+    console.error("Error in /api/live-prices endpoint:", error);
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json({
+      timestamp: new Date().toISOString(),
+      apiKeyConfigured: false,
+      prices: liveMarketQuotes || {},
+      indices: MARKET_INDICES,
+      macro: MACRO_INDICATORS
+    });
+  }
 });
 
 // 1. Health check

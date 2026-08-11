@@ -60,11 +60,24 @@ export const Navbar: React.FC<NavbarProps> = ({
       setIsSearching(true);
       try {
         const res = await fetch(`/api/stocks?query=${encodeURIComponent(searchQuery)}&market=${selectedMarket}`);
+        if (!res.ok) throw new Error('API server unavailable');
         const data = await res.json();
         setSearchResults(data.stocks || []);
         setShowDropdown(true);
       } catch (err) {
-        console.error('Search error', err);
+        // Local fallback search for static deployment (GitHub Pages/Vercel)
+        const queryLower = searchQuery.toLowerCase().trim();
+        const { STOCKS_DATABASE } = await import('../data/mockMarketData');
+        const matched = STOCKS_DATABASE.filter((s) => {
+          const matchMarket = selectedMarket === 'ALL' || s.market === selectedMarket;
+          const matchQuery = s.nameAr.toLowerCase().includes(queryLower) ||
+                             s.symbol.toLowerCase().includes(queryLower) ||
+                             (s.code && s.code.includes(queryLower)) ||
+                             (s.sectorAr && s.sectorAr.toLowerCase().includes(queryLower));
+          return matchMarket && matchQuery;
+        });
+        setSearchResults(matched.slice(0, 8));
+        setShowDropdown(true);
       } finally {
         setIsSearching(false);
       }
